@@ -1,0 +1,29 @@
+# The plugin's contract with IRIS (docs/architecture/plugin-contract.md).
+name: weather-now
+version: 0.1.0
+summary: Look up the weather forecast for a place.
+description: >-
+  Weather Now: a deterministic weather-code lookup and a keyless Open-Meteo forecast
+  tool, and the implementation of the weather.forecast capability other plugins consume.
+entrypoint: plugin:setup
+flavor: python
+# Written outside the harness repository by someone the operator has not vetted as the
+# core's own author: provenance is declared, independent of how the plugin runs.
+party: trusted-third-party
+trust: in-process
+provides:
+  - tool
+capabilities:
+  provides:
+    - weather.forecast
+tools:
+  weather_code_meaning:
+    # Pure lookup in a table that ships in this package: no I/O at all.
+    effect: read
+    content: internal
+  weather_forecast:
+    # Reads a public weather service; changes nothing on the owner's side.
+    effect: read
+    # The place name resolved by the service is text a third party wrote, so every result
+    # is scanned for injected instructions before the model reads it.
+    content: external

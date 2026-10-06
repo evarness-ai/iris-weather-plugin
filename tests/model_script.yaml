@@ -1,0 +1,13 @@
+# The scripted model the tests run on (iris_harness.testing.use_fake_model): ordered
+# rules, the first that matches answers. No model server, no network.
+rules:
+  - name: answer from the forecast
+    match:
+      user: '(?s)Observation:.*Forecast for Lisbon, Lisboa, Portugal'
+    reply:
+      content: "Thought: I have the forecast.\nFinal Answer: Lisbon looks clear and mild."
+  - name: call the forecast tool
+    match:
+      user: "User: What is the weather forecast for Lisbon"
+    reply:
+      content: "Thought: Look it up.\nAction: weather_forecast\nAction Input: {\"location\": \"Lisbon\", \"days\": 2}"
