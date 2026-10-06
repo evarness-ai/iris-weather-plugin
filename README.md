@@ -25,6 +25,15 @@ git clone https://github.com/evarness-ai/iris-harness && python3.12 -m venv .ven
 .venv/bin/pip install -e ".[test]" && .venv/bin/python -m pytest
 ```
 
+## CI
+
+`scripts/ci_local.sh` is the gate: it builds (or locates) the iris-harness wheel, installs it
+and the plugin into a throwaway venv, then runs ruff, `black --check`, `check_stable_imports()`
+and pytest, the same steps in the same order as `.github/workflows/ci.yml`. `ci.yml` is the
+hosted equivalent, kept correct but not run (this repository is not on GitHub CI). The script's
+header lists where it differs from hosted CI; env vars `IRIS_HARNESS_CLONE`, `IRIS_WHEEL_DIR`
+and `IRIS_USE_WHEEL` select the harness source.
+
 Tests need no network and no model server: HTTP goes to `httpx.MockTransport`, the model is
 scripted (`tests/model_script.yaml`), and the harness refuses sockets.
 
