@@ -1,8 +1,9 @@
 # iris-weather-plugin
 
 An [IRIS](https://github.com/evarness-ai/iris-harness) plugin built entirely outside the
-harness repository (issue evarness-ai/iris-harness#79), against an installed iris-harness
-wheel. It adds:
+harness repository, against an installed iris-harness wheel: the exercise of
+[iris-harness#79](https://github.com/evarness-ai/iris-harness/issues/79). It is built against
+iris_harness's stable tier only (`iris_harness.sdk`, `iris_harness.testing`). It adds:
 
 | | |
 |---|---|
@@ -11,7 +12,8 @@ wheel. It adds:
 | `weather.forecast` capability | the same forecast for other plugins (`api.capability("weather.forecast")`). |
 
 Manifest: `party: trusted-third-party`, `trust: in-process`. It imports only
-`iris_harness.sdk` and `iris_harness.testing` (CI runs `check_stable_imports()`).
+`iris_harness.sdk` and `iris_harness.testing`; `scripts/ci_local.sh` runs
+`check_stable_imports()` over `src` and `tests`.
 
 ## Develop
 
@@ -25,14 +27,15 @@ git clone https://github.com/evarness-ai/iris-harness && python3.12 -m venv .ven
 .venv/bin/pip install -e ".[test]" && .venv/bin/python -m pytest
 ```
 
-## CI
+## Tests and the gate
 
 `scripts/ci_local.sh` is the gate: it builds (or locates) the iris-harness wheel, installs it
 and the plugin into a throwaway venv, then runs ruff, `black --check`, `check_stable_imports()`
-and pytest, the same steps in the same order as `.github/workflows/ci.yml`. `ci.yml` is the
-hosted equivalent, kept correct but not run (this repository is not on GitHub CI). The script's
-header lists where it differs from hosted CI; env vars `IRIS_HARNESS_CLONE`, `IRIS_WHEEL_DIR`
-and `IRIS_USE_WHEEL` select the harness source.
+and pytest. `.github/workflows/ci.yml` has the same steps but is manual-only
+(`workflow_dispatch`): iris-harness is not on a package index (iris-harness#108), so a hosted
+run would have to build the wheel from a clone, a path that has not been proven on a runner.
+The script's header lists where it differs from hosted CI; `IRIS_HARNESS_CLONE`,
+`IRIS_WHEEL_DIR` and `IRIS_USE_WHEEL` select the harness source.
 
 Tests need no network and no model server: HTTP goes to `httpx.MockTransport`, the model is
 scripted (`tests/model_script.yaml`), and the harness refuses sockets.
@@ -51,4 +54,7 @@ plugins:
 The plugin contacts exactly `geocoding-api.open-meteo.com` and `api.open-meteo.com` over
 HTTPS. See [docs/EGRESS.md](docs/EGRESS.md). Gaps found in the SDK: [docs/GAPS.md](docs/GAPS.md).
 
-Apache-2.0. Commits are signed off (`git commit -s`).
+## License and contributing
+
+Apache-2.0, the same license as iris-harness (see `LICENSE`). Contributions follow
+[CONTRIBUTING.md](CONTRIBUTING.md).

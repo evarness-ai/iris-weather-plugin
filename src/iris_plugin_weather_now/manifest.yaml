@@ -24,6 +24,8 @@ tools:
   weather_forecast:
     # Reads a public weather service; changes nothing on the owner's side.
     effect: read
-    # The place name resolved by the service is text a third party wrote, so every result
-    # is scanned for injected instructions before the model reads it.
+    # The place name resolved by the service is third-party text, so the result is declared
+    # `content: external`. IRIS's retrieved-content injection guard scans it when that guard
+    # is enabled and its classifier is available; the guard is opt-in
+    # (IRIS_GOVERNANCE_PROMPT_GUARD), so by default nothing scans the result.
     content: external

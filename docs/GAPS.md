@@ -1,10 +1,15 @@
 # SDK gaps found while building this plugin
 
 Each entry says what was tried, what happened, and the core change proposed. None is
-worked around in this repository. Built against iris-harness `main` at `cb94a0b`, as an
-installed wheel in a fresh Python 3.12 venv.
+worked around in this repository. Built against an iris-harness wheel in a fresh Python 3.12
+venv. Re-checked on 2026-10-06 against a wheel built from iris-harness `main` at `2166717`;
+each entry below says whether that re-check changed it. Tracking issues are in
+evarness-ai/iris-harness.
 
 ## GAP-1 (important): no governance of a tool's network egress, and no way to declare it
+
+Still open at `2166717` (iris-harness#103). Re-run: `PluginManifest` still rejects `egress:`
+as an extra key, and still accepts only `sends_to: search_engine`.
 
 - Tried: declare the hosts the network tool contacts in `manifest.yaml`
   (`egress: {hosts: [api.open-meteo.com]}`), and mark the tool's destination with
@@ -33,6 +38,9 @@ installed wheel in a fresh Python 3.12 venv.
 
 ## GAP-2: iris-harness is not installable from an index
 
+Still open at `2166717` (iris-harness#108): PyPI answers 404 for `iris-harness`, and the
+repository has no tags (one draft release).
+
 - Tried: `pip install iris-harness` (the plugin's declared dependency, `>=0.1,<0.2`).
 - Result: PyPI answers 404 for `iris-harness`. The plugin installs only after building a
   wheel from a clone (`python -m build --wheel`), which is what this repo's CI does.
@@ -41,17 +49,22 @@ installed wheel in a fresh Python 3.12 venv.
 
 ## GAP-3: scaffold ergonomics (minor)
 
+Re-run at `2166717` (iris-harness#107): the command and README points below are unchanged; the
+manifest template now carries `party: untrusted`, which the first run did not have.
+
 - `iris plugins new weather-now` as written in the issue fails: `Missing option '--kind'`.
   The working command is `iris plugins new weather-now --kind tool --dir <dir>`.
 - The generated README says `iris plugin new` (singular); the command group is `plugins`.
 - The directory is `<dir>/<name>` (here `weather-now`); the repository name
   `iris-weather-plugin` needs a rename. The distribution is `iris-plugin-weather-now`.
-- The `tool` scaffold is one sync read tool. It has no `party:`, no `capabilities:`
+- The `tool` scaffold is one sync read tool. It has no `capabilities:`
   block, no network/async example and no `pytest-asyncio` in the test extra, so a
   capability provider (async by Protocol) needs those added by hand. Proposed: a
-  `capability-provider` kind, and `party` shown (commented) in every manifest template.
+  `capability-provider` kind.
 
 ## GAP-4 (design note, not blocking): no HTTP/transport injection point
+
+Unchanged at `2166717` (iris-harness#107, #103).
 
 - `setup(api)` receives nothing to configure it with, so the plugin exposes
   `make_setup(transport, async_transport)` and the entry point is `setup = make_setup()`.

@@ -15,14 +15,16 @@ is returned to the model as an `error:` observation (tool) or `CapabilityUnavail
 
 ## What the harness gives the plugin for this today
 
-Verified against iris-harness `main` (commit `cb94a0b`):
+Verified against iris-harness `main` at `2166717` (the test suite and the manifest checks below were run against a wheel built from it):
 
 - Each request is recorded with `iris_harness.sdk.logging.log_egress` (`EGRESS service GET
   -> <url without query> purpose=geocode|forecast status=<code>`). This is the plugin
   reporting on itself.
 - The manifest declares `weather_forecast` as `effect: read`, `content: external`, so the
-  kernel records PRE/POST_TOOL_USE rows and scans the result for injected instructions.
+  kernel records PRE/POST_TOOL_USE rows and the result is eligible for IRIS's
+  retrieved-content injection guard. That guard is opt-in (`IRIS_GOVERNANCE_PROMPT_GUARD`)
+  and needs its classifier; by default nothing scans the result (iris-harness#104).
 - `config/governance/egress.yaml` is the LLM-prompt class-to-tier policy. It does not
   govern a tool's own network calls.
 - The manifest cannot state the hosts above, and nothing in the harness enforces them. See
-  GAPS.md, GAP-1.
+  GAPS.md, GAP-1 (iris-harness#103).
