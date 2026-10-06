@@ -78,6 +78,14 @@ Unchanged at `2166717` (iris-harness#107, #103).
 plugin reports the high as `temperature_c` and puts the low in `summary` text. A
 `temperature_min_c` field would avoid that. Not a blocker.
 
+## GAP-5 (noise, core wheel; intermittent): the test process can abort at interpreter exit
+
+Seen at `2166717` on macOS: `pytest` printed `23 passed`, then the process died with
+`libc++abi: terminating due to uncaught exception of type std::__1::system_error:
+recursive_mutex lock failed: Invalid argument` and a non-zero exit status, which fails
+`scripts/ci_local.sh`. The same gate passed on other runs, so it is intermittent. The cause was not traced (it was not
+checked whether it needs the harness imported). Re-run the gate if it happens.
+
 ## Not checked (needs a running stack)
 
 `iris plugins show weather-now` needs a running IRIS API. Discovery was verified through
