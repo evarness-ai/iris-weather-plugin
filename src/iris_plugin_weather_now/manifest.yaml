@@ -13,6 +13,15 @@ party: trusted-third-party
 trust: in-process
 provides:
   - tool
+# The only hosts this plugin talks to (docs/architecture/plugin-egress.md). A request to any
+# other host is denied and recorded; each allowed one leaves a pre_egress/post_egress row.
+# The place name leaves in the query, so the highest data class sent is `personal`.
+egress:
+  hosts:
+    - host: geocoding-api.open-meteo.com
+      data: personal
+    - host: api.open-meteo.com
+      data: personal
 capabilities:
   provides:
     - weather.forecast

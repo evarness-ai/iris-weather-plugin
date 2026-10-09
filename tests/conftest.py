@@ -51,6 +51,23 @@ def recorder() -> Recorder:
     return Recorder()
 
 
+class LocalHttp:
+    """Stands in for the governed client (``api.http``) in the tests that exercise the client
+    alone: it answers from ``handler`` and does nothing else. The governed behaviour (declared
+    hosts, ledger rows) is tested through the harness with ``fake_http``, not here."""
+
+    def __init__(self, handler) -> None:
+        self._transport = httpx.MockTransport(handler)
+
+    def get(self, url: str, **kwargs):
+        with httpx.Client(transport=self._transport) as client:
+            return client.get(url, params=kwargs.get("params"))
+
+    async def arequest(self, method: str, url: str, **kwargs):
+        async with httpx.AsyncClient(transport=self._transport) as client:
+            return await client.request(method, url, params=kwargs.get("params"))
+
+
 @pytest.fixture
-def transport(recorder: Recorder) -> httpx.MockTransport:
-    return httpx.MockTransport(recorder)
+def http(recorder: Recorder) -> LocalHttp:
+    return LocalHttp(recorder)

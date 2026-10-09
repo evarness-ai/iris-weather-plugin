@@ -17,7 +17,6 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-import httpx
 from iris_harness.sdk import PluginAPI
 from iris_harness.sdk.capabilities import CapabilityUnavailable, Forecast
 
@@ -98,24 +97,10 @@ class _Provider:
             raise CapabilityUnavailable(str(exc)) from exc
 
 
-def make_setup(
-    transport: httpx.BaseTransport | None = None,
-    async_transport: httpx.AsyncBaseTransport | None = None,
-) -> Callable[[PluginAPI], None]:
-    """``setup`` with its HTTP transports as parameters.
-
-    The entry point is ``setup`` below (real network). A test builds its own with
-    ``httpx.MockTransport`` and mounts it through ``iris_harness.testing.plugin``.
-    """
-
-    def configured(api: PluginAPI) -> None:
-        api.register_tool(CODE_TOOL, CODE_DESCRIPTION, code_meaning)
-        api.register_tool(
-            FORECAST_TOOL, FORECAST_DESCRIPTION, make_forecast_tool(OpenMeteo(transport))
-        )
-        api.provide("weather.forecast", _Provider(AsyncOpenMeteo(async_transport)))
-
-    return configured
-
-
-setup = make_setup()
+def setup(api: PluginAPI) -> None:
+    """The entry point. ``api.http`` is the governed client: it enforces the manifest's
+    ``egress:`` hosts and records every request. A test replaces only its transport
+    (``iris_harness.testing.fake_http``)."""
+    api.register_tool(CODE_TOOL, CODE_DESCRIPTION, code_meaning)
+    api.register_tool(FORECAST_TOOL, FORECAST_DESCRIPTION, make_forecast_tool(OpenMeteo(api.http)))
+    api.provide("weather.forecast", _Provider(AsyncOpenMeteo(api.http)))

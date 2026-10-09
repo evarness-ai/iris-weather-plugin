@@ -2,7 +2,7 @@
 
 ``harness`` builds the runtime ``iris`` runs, in a throwaway home, on the scripted model
 in ``model_script.yaml``, with the network refused. The forecast tool's HTTP goes to a
-``httpx.MockTransport`` handed to ``make_setup``: the plugin's own seam, not a patch.
+governed ``api.http`` with only its transport replaced (``iris_harness.testing.fake_http``).
 """
 
 from __future__ import annotations
@@ -14,8 +14,9 @@ import httpx
 import pytest
 import yaml
 from iris_harness.sdk.capabilities import CapabilityUnavailable
-from iris_harness.testing import assert_conformant, harness, no_network, plugin
+from iris_harness.testing import assert_conformant, fake_http, harness, plugin
 
+from conftest import LocalHttp
 from iris_plugin_weather_now import codes, openmeteo
 from iris_plugin_weather_now import plugin as this_plugin
 from iris_plugin_weather_now.openmeteo import AsyncOpenMeteo, OpenMeteo
@@ -25,8 +26,8 @@ MANIFEST = Path(this_plugin.__file__).with_name("manifest.yaml")
 SCRIPT = Path(__file__).with_name("model_script.yaml")
 
 
-def mounted(transport: httpx.MockTransport):
-    return plugin(this_plugin.make_setup(transport, transport), manifest=MANIFEST)
+def mounted():
+    return plugin(this_plugin.setup, manifest=MANIFEST)
 
 
 # -- the deterministic tool ------------------------------------------------------------
@@ -48,16 +49,16 @@ def test_code_meaning_bad_args_are_an_observation(bad: dict) -> None:
 # -- the network-backed tool, against canned responses -----------------------------------
 
 
-def test_forecast_tool_renders_the_forecast(transport, recorder) -> None:
-    run = this_plugin.make_forecast_tool(OpenMeteo(transport))
+def test_forecast_tool_renders_the_forecast(http, recorder) -> None:
+    run = this_plugin.make_forecast_tool(OpenMeteo(http))
     text = run({"location": "Lisbon", "days": 2})
     assert "Forecast for Lisbon, Lisboa, Portugal" in text
     assert "2026-10-06: Clear sky, low 15 C, high 24 C, rain chance 5%" in text
     assert "2026-10-07: Slight rain, low 14 C, high 21 C, rain chance 70%, wind up to 25" in text
 
 
-def test_only_open_meteo_hosts_are_contacted_and_only_the_place_leaves(recorder, transport) -> None:
-    this_plugin.make_forecast_tool(OpenMeteo(transport))({"location": "Lisbon", "days": 99})
+def test_only_open_meteo_hosts_are_contacted_and_only_the_place_leaves(http, recorder) -> None:
+    this_plugin.make_forecast_tool(OpenMeteo(http))({"location": "Lisbon", "days": 99})
     assert {r.url.host for r in recorder.requests} == set(openmeteo.EGRESS_HOSTS)
     assert all(r.url.scheme == "https" for r in recorder.requests)
     geocode, forecast = recorder.requests
@@ -80,38 +81,28 @@ def test_only_open_meteo_hosts_are_contacted_and_only_the_place_leaves(recorder,
 
 
 def test_unknown_place_is_an_error_observation() -> None:
-    transport = httpx.MockTransport(lambda request: httpx.Response(200, json={}))
-    run = this_plugin.make_forecast_tool(OpenMeteo(transport))
+    run = this_plugin.make_forecast_tool(
+        OpenMeteo(LocalHttp(lambda request: httpx.Response(200, json={})))
+    )
     assert run({"location": "Nowhereville"}) == "error: no place found called 'Nowhereville'"
 
 
 def test_service_errors_are_an_observation_not_an_exception() -> None:
-    down = httpx.MockTransport(lambda request: httpx.Response(503))
+    down = LocalHttp(lambda request: httpx.Response(503))
     assert "HTTP 503" in this_plugin.make_forecast_tool(OpenMeteo(down))({"location": "Lisbon"})
 
     def unreachable(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("boom", request=request)
 
-    text = this_plugin.make_forecast_tool(OpenMeteo(httpx.MockTransport(unreachable)))(
-        {"location": "Lisbon"}
-    )
+    text = this_plugin.make_forecast_tool(OpenMeteo(LocalHttp(unreachable)))({"location": "Lisbon"})
     assert text.startswith("error:") and "could not be reached" in text
 
 
 @pytest.mark.parametrize(
     "bad", [{}, {"location": ""}, {"location": 5}, {"location": "x", "days": "many"}]
 )
-def test_forecast_bad_args(bad: dict, transport) -> None:
-    assert this_plugin.make_forecast_tool(OpenMeteo(transport))(bad).startswith("error:")
-
-
-def test_real_client_with_the_network_refused_fails_cleanly() -> None:
-    """The shipped ``setup`` uses the real transport; under ``no_network`` it must degrade,
-    not hang or raise out of the tool."""
-    with no_network() as attempts:
-        text = this_plugin.make_forecast_tool(OpenMeteo())({"location": "Lisbon"})
-    assert text.startswith("error:")
-    assert attempts, "the plugin should have tried to reach Open-Meteo (and been refused)"
+def test_forecast_bad_args(bad: dict, http) -> None:
+    assert this_plugin.make_forecast_tool(OpenMeteo(http))(bad).startswith("error:")
 
 
 def test_every_wmo_code_in_a_day_has_words() -> None:
@@ -123,8 +114,8 @@ def test_every_wmo_code_in_a_day_has_words() -> None:
 # -- the capability ------------------------------------------------------------------------
 
 
-async def test_capability_provider_returns_a_forecast(transport) -> None:
-    forecast = await AsyncOpenMeteo(transport).forecast("Lisbon", 2)
+async def test_capability_provider_returns_a_forecast(http) -> None:
+    forecast = await AsyncOpenMeteo(http).forecast("Lisbon", 2)
     assert forecast.location == "Lisbon, Lisboa, Portugal"
     assert [p.temperature_c for p in forecast.periods] == [24.4, 21.0]
     assert forecast.periods[1].precipitation_probability == pytest.approx(0.7)
@@ -134,7 +125,7 @@ async def test_capability_provider_returns_a_forecast(transport) -> None:
 
 
 async def test_capability_cannot_answer_raises_unavailable() -> None:
-    empty = httpx.MockTransport(lambda request: httpx.Response(200, json={}))
+    empty = LocalHttp(lambda request: httpx.Response(200, json={}))
     provider = this_plugin._Provider(AsyncOpenMeteo(empty))
     with pytest.raises(CapabilityUnavailable):
         await provider.forecast("Nowhereville")
@@ -153,14 +144,14 @@ def test_manifest_declares_party_trust_and_capability() -> None:
 # -- mounted in a governed IRIS ---------------------------------------------------------------
 
 
-def test_the_plugin_mounts_with_its_manifest(transport) -> None:
-    with harness(plugins=[mounted(transport)]) as h:
+def test_the_plugin_mounts_with_its_manifest() -> None:
+    with harness(plugins=[mounted()]) as h:
         assert h.plugin_loaded(NAME), h.plugins()[NAME]
 
 
 @pytest.mark.parametrize("entry", ["chat", "chat_stream"])
-def test_the_model_calls_the_forecast_tool_through_the_governed_loop(entry, transport) -> None:
-    with harness(plugins=[mounted(transport)], fake_model=SCRIPT) as h:
+def test_the_model_calls_the_forecast_tool_through_the_governed_loop(entry, recorder) -> None:
+    with fake_http(recorder), harness(plugins=[mounted()], fake_model=SCRIPT) as h:
         ask = h.chat if entry == "chat" else h.chat_stream
         result = ask("What is the weather forecast for Lisbon?")
         assert result.answered, result.error
@@ -172,16 +163,20 @@ def test_the_model_calls_the_forecast_tool_through_the_governed_loop(entry, tran
         assert h.audit_rows(hook_point="pre_tool_use")
         assert h.audit_rows(hook_point="post_tool_use")
         assert h.audit_gaps() == []
+        egress = h.audit_rows(hook_point="post_egress")
+        assert {r.egress["host"] for r in egress} == set(openmeteo.EGRESS_HOSTS)
+        assert {r.decision for r in h.audit_rows(hook_point="pre_egress")} == {"allow"}
 
 
-def test_governance_conformance(transport) -> None:
+def test_governance_conformance(recorder) -> None:
     """The harness's reusable suite: audit rows, caller stamping, coverage of every tool
     and of the capability's method, run as a consumer would call them."""
-    assert_conformant(
-        mounted(transport),
-        tools={
-            "weather_code_meaning": {"code": 3},
-            "weather_forecast": {"location": "Lisbon", "days": 2},
-        },
-        capabilities={"weather.forecast": {"forecast": {"location": "Lisbon", "days": 2}}},
-    )
+    with fake_http(recorder):
+        assert_conformant(
+            mounted(),
+            tools={
+                "weather_code_meaning": {"code": 3},
+                "weather_forecast": {"location": "Lisbon", "days": 2},
+            },
+            capabilities={"weather.forecast": {"forecast": {"location": "Lisbon", "days": 2}}},
+        )
