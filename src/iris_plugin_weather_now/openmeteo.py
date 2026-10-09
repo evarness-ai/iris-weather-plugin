@@ -18,9 +18,8 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
-import httpx
 from iris_harness.sdk.capabilities import Forecast, ForecastPeriod
-from iris_harness.sdk.logging import log_egress
+from iris_harness.sdk.http import EgressDenied, GovernedHttp
 
 from .codes import describe
 
@@ -116,12 +115,7 @@ def parse_forecast(payload: dict[str, Any], place: str, now: datetime | None = N
     return Forecast(location=place, issued_at=now or datetime.now(UTC), periods=tuple(periods))
 
 
-def _log(url: str, status: int | str, purpose: str) -> None:
-    log_egress(destination=url, method="GET", purpose=purpose, kind="service", status=status)
-
-
-def _json(response: httpx.Response, purpose: str) -> dict[str, Any]:
-    _log(str(response.request.url.copy_with(query=None)), response.status_code, purpose)
+def _json(response: Any) -> dict[str, Any]:
     if response.status_code != 200:
         raise WeatherError(f"the weather service answered HTTP {response.status_code}")
     try:
@@ -133,46 +127,56 @@ def _json(response: httpx.Response, purpose: str) -> dict[str, Any]:
     return body
 
 
-class OpenMeteo:
-    """Blocking client (the ReAct tool is a plain function)."""
+def _unreachable(exc: Exception) -> WeatherError:
+    return WeatherError(f"the weather service could not be reached ({type(exc).__name__})")
 
-    def __init__(self, transport: httpx.BaseTransport | None = None) -> None:
-        self._transport = transport
+
+class OpenMeteo:
+    """Blocking client (the ReAct tool is a plain function). Every request goes through the
+    governed client (``api.http``): the declared hosts are enforced and each call is recorded."""
+
+    def __init__(self, http: GovernedHttp) -> None:
+        self._http = http
 
     def forecast(self, location: str, days: int = 3) -> Forecast:
         try:
-            with httpx.Client(transport=self._transport, timeout=TIMEOUT_S) as http:
-                geo = _json(http.get(GEOCODING_URL, params=geocode_params(location)), "geocode")
-                lat, lon, place = parse_place(geo, location)
-                body = _json(
-                    http.get(FORECAST_URL, params=forecast_params(lat, lon, days)), "forecast"
+            geo = _json(
+                self._http.get(GEOCODING_URL, params=geocode_params(location), timeout=TIMEOUT_S)
+            )
+            lat, lon, place = parse_place(geo, location)
+            body = _json(
+                self._http.get(
+                    FORECAST_URL, params=forecast_params(lat, lon, days), timeout=TIMEOUT_S
                 )
-        except httpx.HTTPError as exc:
-            raise WeatherError(
-                f"the weather service could not be reached ({type(exc).__name__})"
-            ) from exc
+            )
+        except WeatherError:
+            raise
+        except (EgressDenied, Exception) as exc:  # noqa: BLE001 - the transport's own errors
+            raise _unreachable(exc) from exc
         return parse_forecast(body, place)
 
 
 class AsyncOpenMeteo:
     """Async client (the ``weather.forecast`` capability's methods are coroutines)."""
 
-    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
-        self._transport = transport
+    def __init__(self, http: GovernedHttp) -> None:
+        self._http = http
 
     async def forecast(self, location: str, days: int = 3) -> Forecast:
         try:
-            async with httpx.AsyncClient(transport=self._transport, timeout=TIMEOUT_S) as http:
-                geo = _json(
-                    await http.get(GEOCODING_URL, params=geocode_params(location)), "geocode"
+            geo = _json(
+                await self._http.arequest(
+                    "GET", GEOCODING_URL, params=geocode_params(location), timeout=TIMEOUT_S
                 )
-                lat, lon, place = parse_place(geo, location)
-                body = _json(
-                    await http.get(FORECAST_URL, params=forecast_params(lat, lon, days)),
-                    "forecast",
+            )
+            lat, lon, place = parse_place(geo, location)
+            body = _json(
+                await self._http.arequest(
+                    "GET", FORECAST_URL, params=forecast_params(lat, lon, days), timeout=TIMEOUT_S
                 )
-        except httpx.HTTPError as exc:
-            raise WeatherError(
-                f"the weather service could not be reached ({type(exc).__name__})"
-            ) from exc
+            )
+        except WeatherError:
+            raise
+        except (EgressDenied, Exception) as exc:  # noqa: BLE001 - the transport's own errors
+            raise _unreachable(exc) from exc
         return parse_forecast(body, place)
